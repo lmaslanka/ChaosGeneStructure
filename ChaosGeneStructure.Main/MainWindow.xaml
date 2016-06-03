@@ -12,9 +12,11 @@
             <Button x:Name="Process" Margin="10,10,10,0" Click="Process_Click">Process...</Button>
             <TextBlock x:Name="ProcessingText" HorizontalAlignment="Center" Margin="10,40,10,0" FontSize="21">Processing...</TextBlock>
         </StackPanel>
-        <DockPanel>
-            <Canvas x:Name="Board"></Canvas>
-        </DockPanel>
-        
+        <WrapPanel x:Name="ImageStackPanel">
+            <Image x:Name="ImgBitmap"></Image>
+        </WrapPanel>
     </DockPanel>
 </Window>
+
+
+

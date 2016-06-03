@@ -3,19 +3,20 @@
     using System;
     using System.Collections.Generic;
     using System.ComponentModel;
+    using System.Drawing;
     using System.IO;
     using System.Windows;
-    using System.Windows.Controls;
     using System.Windows.Media;
-    using System.Windows.Shapes;
+    using System.Windows.Media.Imaging;
+    using Microsoft.Win32;
+    using Color = System.Drawing.Color;
 
     /// <summary>
     /// Interaction logic for MainWindow.xaml
     /// </summary>
     public partial class MainWindow : Window
     {
-        private const double MinBounds = 10;
-        public Dictionary<char, Point> VerticesDictionary = new Dictionary<char, Point>();
+        private string FileName = string.Empty;
         private readonly BackgroundWorker worker = new BackgroundWorker();
 
         public MainWindow()
@@ -23,6 +24,8 @@
             InitializeComponent();
 
             this.ProcessingText.Visibility = Visibility.Hidden;
+            this.worker.DoWork += Worker_DoWork;
+            this.worker.RunWorkerCompleted += Worker_RunWorkerCompleted;
         }
 
         private void Process_Click(object sender, RoutedEventArgs e)
@@ -30,32 +33,31 @@
             this.ProcessingText.Visibility = Visibility.Visible;
             this.Process.IsEnabled = false;
             this.LoadData.IsEnabled = false;
+            
+            this.worker.RunWorkerAsync();
+        }
 
-            this.worker.DoWork += Worker_DoWork;
-            this.worker.RunWorkerCompleted += Worker_RunWorkerCompleted;
+        public BitmapSource ConvertToBitmapSource(Bitmap bitmap)
+        {
+            var bitmapData = bitmap.LockBits(
+                new Rectangle(0, 0, bitmap.Width, bitmap.Height),
+                System.Drawing.Imaging.ImageLockMode.ReadOnly, bitmap.PixelFormat);
 
-            var maxBounds = this.Board.ActualHeight > this.Board.ActualWidth ? this.Board.ActualWidth : this.Board.ActualHeight;
+            var bitmapSource = BitmapSource.Create(
+                bitmapData.Width, bitmapData.Height, 96, 96, PixelFormats.Bgr24, null,
+                bitmapData.Scan0, bitmapData.Stride * bitmapData.Height, bitmapData.Stride);
 
-            var pointA = new Point(MinBounds, maxBounds - MinBounds);
-            var pointC = new Point(MinBounds, MinBounds);
-            var pointG = new Point(maxBounds - MinBounds, MinBounds);
-            var pointT = new Point(maxBounds - MinBounds, maxBounds - MinBounds);
-            var initialPoint = new Point(((maxBounds - MinBounds) - MinBounds) / 2, ((maxBounds - MinBounds) - MinBounds) / 2);
+            bitmap.UnlockBits(bitmapData);
 
-            this.VerticesDictionary.Add('A', pointA);
-            this.VerticesDictionary.Add('C', pointC);
-            this.VerticesDictionary.Add('G', pointG);
-            this.VerticesDictionary.Add('T', pointT);
-
-            Point[] vertices = { pointA, pointC, pointT, pointG };
-            var data = ReadFile().ToArray();
-
-            DrawPoints(vertices);
-            DrawLines(initialPoint, data);
+            return bitmapSource;
         }
 
         private void Worker_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
         {
+            this.ImgBitmap.Source = e.Result as BitmapSource;
+
+            this.worker.Dispose();
+
             this.ProcessingText.Visibility = Visibility.Hidden;
             this.Process.IsEnabled = true;
             this.LoadData.IsEnabled = true;
@@ -63,90 +65,115 @@
 
         private void Worker_DoWork(object sender, DoWorkEventArgs e)
         {
-            //var maxBounds = this.Board.ActualHeight > this.Board.ActualWidth ? this.Board.ActualWidth : this.Board.ActualHeight;
+            var verticesDictionary = new Dictionary<char, Main.Point>();
+            int maxBounds = this.ImageStackPanel.ActualHeight > this.ImageStackPanel.ActualWidth ? (int)this.ImageStackPanel.ActualWidth : (int)this.ImageStackPanel.ActualHeight;
 
-            //var pointA = new Point(MinBounds, maxBounds - MinBounds);
-            //var pointC = new Point(MinBounds, MinBounds);
-            //var pointG = new Point(maxBounds - MinBounds, MinBounds);
-            //var pointT = new Point(maxBounds - MinBounds, maxBounds - MinBounds);
-            //var initialPoint = new Point(((maxBounds - MinBounds) - MinBounds) / 2, ((maxBounds - MinBounds) - MinBounds) / 2);
+            Bitmap image = new Bitmap((int)maxBounds, (int)maxBounds);
 
-            //this.VerticesDictionary.Add('A', pointA);
-            //this.VerticesDictionary.Add('C', pointC);
-            //this.VerticesDictionary.Add('G', pointG);
-            //this.VerticesDictionary.Add('T', pointT);
+            ClearWithColor(image);
 
-            //Point[] vertices = { pointA, pointC, pointT, pointG };
-            //var data = ReadFile().ToArray();
+            var pointA = new Main.Point(0, maxBounds - 2);
+            var pointC = new Main.Point(0, 0);
+            var pointG = new Main.Point(maxBounds - 2, 0);
+            var pointT = new Main.Point(maxBounds - 2, maxBounds - 2);
+            var initialPoint = new Main.Point(maxBounds / 2, maxBounds / 2);
 
-            //DrawPoints(vertices);
-            //DrawLines(initialPoint, data);
+            verticesDictionary.Add('A', pointA);
+            verticesDictionary.Add('C', pointC);
+            verticesDictionary.Add('G', pointG);
+            verticesDictionary.Add('T', pointT);
+
+            Main.Point[] vertices = { pointA, pointC, pointT, pointG };
+            var data = ReadFile().ToArray();
+
+            DrawControlPoints(vertices, image);
+            DrawGenePoints(initialPoint, data, image, verticesDictionary);
+            
+            BitmapSource bs = ConvertToBitmapSource(image);
+
+            bs.Freeze();
+
+            e.Result = bs;
+        }
+
+        private void ClearWithColor(Bitmap image)
+        {
+            for (int x = 0; x < image.Width; x++)
+            {
+                for (int y = 0; y < image.Height; y++)
+                {
+                    image.SetPixel(x, y, Color.White);
+                }
+            }
         }
 
         private void LoadData_Click(object sender, RoutedEventArgs e)
         {
-
+            OpenFileDialog openFileDialog = new OpenFileDialog();
+            if (openFileDialog.ShowDialog() == true)
+            {
+                this.FileName = openFileDialog.FileName;
+            }
         }
 
-        private void DrawPoints(Point[] points)
+        private void DrawControlPoints(Main.Point[] points, Bitmap image)
         {
             for (int i = 0; i < points.Length; i++)
             {
-                DrawPoint(points[i].X, points[i].Y);
+                DrawPoint(points[i].X, points[i].Y, image);
             }
         }
 
-        private void DrawLines(Point initialPoint, char[] data)
+        private void DrawGenePoints(Main.Point initialPoint, char[] data, Bitmap image, Dictionary<char, Main.Point> verts)
         {
             var point = initialPoint;
-            DrawPoint(initialPoint.X, initialPoint.Y);
+            DrawPoint(initialPoint.X, initialPoint.Y, image);
             for (int i = 0; i < data.Length; i++)
             {
-                point = Midpoint(point, this.VerticesDictionary[data[i]]);
-                DrawPoint(point.X, point.Y);
+                point = Midpoint(point, verts[data[i]]);
+                DrawPoint(point.X, point.Y, image);
             }
         }
 
-        private void DrawPoint(double x, double y)
+        private void DrawPoint(int x, int y, Bitmap image)
         {
-            Ellipse ellipse = new Ellipse();
-
-            SolidColorBrush color = new SolidColorBrush { Color = Color.FromArgb(255, 255, 0, 0) };
-
-            ellipse.Fill = color;
-            ellipse.StrokeThickness = 0;
-            ellipse.Stroke = Brushes.White;
-            ellipse.Width = 2;
-            ellipse.Height = 2;
-
-            Canvas.SetTop(ellipse, y);
-            Canvas.SetLeft(ellipse, x);
-
-            this.Board.Children.Add(ellipse);
+            image.SetPixel(x, y, Color.Black);
+            image.SetPixel(x + 1, y, Color.Black);
+            image.SetPixel(x + 1, y + 1, Color.Black);
+            image.SetPixel(x, y + 1, Color.Black);
         }
 
         public List<char> ReadFile()
         {
-            var reader = new StreamReader(@"HUMHBB_TestData.txt");
-            var sequence = new List<char>();
-
-            do
+            if (string.IsNullOrEmpty(this.FileName))
             {
-                var ch = (char)reader.Read();
-                var charValue = Convert.ToInt32(ch);
-                if (charValue == 65 || charValue == 67 || charValue == 71 || charValue == 84)
+                MessageBox.Show("Please select a file to analyze first!", "No Data...", MessageBoxButton.OK);
+
+                return new List<char>();
+            }
+            else
+            {
+                var reader = new StreamReader(this.FileName);
+                var sequence = new List<char>();
+
+                do
                 {
-                    sequence.Add(ch);
-                }
-            } while (!reader.EndOfStream);
+                    var ch = (char)reader.Read();
+                    var charValue = Convert.ToInt32(ch);
+                    if (charValue == 65 || charValue == 67 || charValue == 71 || charValue == 84)
+                    {
+                        sequence.Add(ch);
+                    }
+                } while (!reader.EndOfStream);
 
-            reader.Close();
-            reader.Dispose();
+                reader.Close();
+                reader.Dispose();
 
-            return sequence;
+                return sequence;
+            }
         }
 
-        public double Distance(Point a1, Point a2) => Math.Sqrt(Math.Pow((a2.X - a1.X), 2) + Math.Pow((a2.Y - a1.Y), 2));
-        public Point Midpoint(Point a1, Point a2) => new Point(((a1.X + a2.X) / 2), ((a1.Y + a2.Y) / 2));
+        public double Distance(Main.Point a1, Main.Point a2) => Math.Sqrt(Math.Pow((a2.X - a1.X), 2) + Math.Pow((a2.Y - a1.Y), 2));
+        public Main.Point Midpoint(Main.Point a1, Main.Point a2) => new Main.Point(((a1.X + a2.X) / 2), ((a1.Y + a2.Y) / 2));
     }
 }
