@@ -16,7 +16,7 @@
     /// </summary>
     public partial class MainWindow : Window
     {
-        private string FileName = string.Empty;
+        private string fileName = string.Empty;
         private readonly BackgroundWorker worker = new BackgroundWorker();
 
         public MainWindow()
@@ -33,7 +33,7 @@
             this.ProcessingText.Visibility = Visibility.Visible;
             this.Process.IsEnabled = false;
             this.LoadData.IsEnabled = false;
-            
+
             this.worker.RunWorkerAsync();
         }
 
@@ -65,38 +65,47 @@
 
         private void Worker_DoWork(object sender, DoWorkEventArgs e)
         {
-            var verticesDictionary = new Dictionary<char, Main.Point>();
-            int maxBounds = this.ImageStackPanel.ActualHeight > this.ImageStackPanel.ActualWidth ? (int)this.ImageStackPanel.ActualWidth : (int)this.ImageStackPanel.ActualHeight;
-
-            Bitmap image = new Bitmap((int)maxBounds, (int)maxBounds);
-
-            ClearWithColor(image);
-
-            var pointA = new Main.Point(0, maxBounds - 2);
-            var pointC = new Main.Point(0, 0);
-            var pointG = new Main.Point(maxBounds - 2, 0);
-            var pointT = new Main.Point(maxBounds - 2, maxBounds - 2);
-            var initialPoint = new Main.Point(maxBounds / 2, maxBounds / 2);
-
-            verticesDictionary.Add('A', pointA);
-            verticesDictionary.Add('C', pointC);
-            verticesDictionary.Add('G', pointG);
-            verticesDictionary.Add('T', pointT);
-
-            Main.Point[] vertices = { pointA, pointC, pointT, pointG };
-            var data = ReadFile().ToArray();
-
-            DrawControlPoints(vertices, image);
-            DrawGenePoints(initialPoint, data, image, verticesDictionary);
-            
-            BitmapSource bs = ConvertToBitmapSource(image);
+            BitmapSource bs = ComputeWithBitmap();
 
             bs.Freeze();
 
             e.Result = bs;
         }
 
-        private void ClearWithColor(Bitmap image)
+        private BitmapSource ComputeWithBitmap()
+        {
+            int maxBounds = this.ImageStackPanel.ActualHeight > this.ImageStackPanel.ActualWidth ? (int)this.ImageStackPanel.ActualWidth : (int)this.ImageStackPanel.ActualHeight;
+            var initialPoint = new Point(maxBounds / 2, maxBounds / 2);
+            var data = ReadFile().ToArray();
+            var verticesDictionary = InitializeBoundaryPoints(maxBounds);
+
+            Bitmap image = new Bitmap((int)maxBounds, (int)maxBounds);
+            ClearWithColor(image);
+            
+            DrawControlPoints(verticesDictionary, image);
+            DrawGenePoints(initialPoint, data, image, verticesDictionary);
+
+            return ConvertToBitmapSource(image);
+        }
+
+        private static Dictionary<char, Point> InitializeBoundaryPoints(int maxBounds)
+        {
+            var verticesDictionary = new Dictionary<char, Point>();
+
+            var pointA = new Point(0, maxBounds - 2);
+            var pointC = new Point(0, 0);
+            var pointG = new Point(maxBounds - 2, 0);
+            var pointT = new Point(maxBounds - 2, maxBounds - 2);
+
+            verticesDictionary.Add('A', pointA);
+            verticesDictionary.Add('C', pointC);
+            verticesDictionary.Add('G', pointG);
+            verticesDictionary.Add('T', pointT);
+
+            return verticesDictionary;
+        }
+
+        private static void ClearWithColor(Bitmap image)
         {
             for (int x = 0; x < image.Width; x++)
             {
@@ -110,24 +119,29 @@
         private void LoadData_Click(object sender, RoutedEventArgs e)
         {
             OpenFileDialog openFileDialog = new OpenFileDialog();
+
             if (openFileDialog.ShowDialog() == true)
             {
-                this.FileName = openFileDialog.FileName;
+                this.fileName = openFileDialog.FileName;
             }
         }
 
-        private void DrawControlPoints(Main.Point[] points, Bitmap image)
+        private void DrawControlPoints(Dictionary<char, Point> verticesDictionary, Bitmap image)
         {
+            Point[] points = { verticesDictionary['A'], verticesDictionary['C'], verticesDictionary['T'], verticesDictionary['G'] };
+
             for (int i = 0; i < points.Length; i++)
             {
                 DrawPoint(points[i].X, points[i].Y, image);
             }
         }
 
-        private void DrawGenePoints(Main.Point initialPoint, char[] data, Bitmap image, Dictionary<char, Main.Point> verts)
+        private void DrawGenePoints(Point initialPoint, char[] data, Bitmap image, Dictionary<char, Point> verts)
         {
             var point = initialPoint;
+
             DrawPoint(initialPoint.X, initialPoint.Y, image);
+
             for (int i = 0; i < data.Length; i++)
             {
                 point = Midpoint(point, verts[data[i]]);
@@ -138,42 +152,37 @@
         private void DrawPoint(int x, int y, Bitmap image)
         {
             image.SetPixel(x, y, Color.Black);
-            image.SetPixel(x + 1, y, Color.Black);
-            image.SetPixel(x + 1, y + 1, Color.Black);
-            image.SetPixel(x, y + 1, Color.Black);
         }
 
         public List<char> ReadFile()
         {
-            if (string.IsNullOrEmpty(this.FileName))
+            if (string.IsNullOrEmpty(this.fileName))
             {
                 MessageBox.Show("Please select a file to analyze first!", "No Data...", MessageBoxButton.OK);
 
                 return new List<char>();
             }
-            else
+
+            var reader = new StreamReader(this.fileName);
+            var sequence = new List<char>();
+
+            do
             {
-                var reader = new StreamReader(this.FileName);
-                var sequence = new List<char>();
-
-                do
+                var ch = (char)reader.Read();
+                var charValue = Convert.ToInt32(ch);
+                if (charValue == 65 || charValue == 67 || charValue == 71 || charValue == 84)
                 {
-                    var ch = (char)reader.Read();
-                    var charValue = Convert.ToInt32(ch);
-                    if (charValue == 65 || charValue == 67 || charValue == 71 || charValue == 84)
-                    {
-                        sequence.Add(ch);
-                    }
-                } while (!reader.EndOfStream);
+                    sequence.Add(ch);
+                }
+            } while (!reader.EndOfStream);
 
-                reader.Close();
-                reader.Dispose();
+            reader.Close();
+            reader.Dispose();
 
-                return sequence;
-            }
+            return sequence;
         }
 
-        public double Distance(Main.Point a1, Main.Point a2) => Math.Sqrt(Math.Pow((a2.X - a1.X), 2) + Math.Pow((a2.Y - a1.Y), 2));
-        public Main.Point Midpoint(Main.Point a1, Main.Point a2) => new Main.Point(((a1.X + a2.X) / 2), ((a1.Y + a2.Y) / 2));
+        public double Distance(Point a1, Point a2) => Math.Sqrt(Math.Pow((a2.X - a1.X), 2) + Math.Pow((a2.Y - a1.Y), 2));
+        public Point Midpoint(Point a1, Point a2) => new Point(((a1.X + a2.X) / 2), ((a1.Y + a2.Y) / 2));
     }
 }
